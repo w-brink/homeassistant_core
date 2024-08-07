@@ -16,7 +16,6 @@ from uiprotect.data import (
     ModelType,
     ProtectAdoptableDeviceModel,
     ProtectDeviceModel,
-    ProtectModelWithId,
     Sensor,
     SmartDetectObjectType,
 )
@@ -41,7 +40,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .data import ProtectData, UFPConfigEntry
+from .data import ProtectData, ProtectDeviceType, UFPConfigEntry
 from .entity import (
     BaseProtectEntity,
     EventEntityMixin,
@@ -721,7 +720,7 @@ class BaseProtectSensor(BaseProtectEntity, SensorEntity):
     entity_description: ProtectSensorEntityDescription
     _state_attrs = ("_attr_available", "_attr_native_value")
 
-    def _async_update_device_from_protect(self, device: ProtectModelWithId) -> None:
+    def _async_update_device_from_protect(self, device: ProtectDeviceType) -> None:
         super()._async_update_device_from_protect(device)
         self._attr_native_value = self.entity_description.get_ufp_value(self.device)
 
@@ -756,27 +755,27 @@ class ProtectLicensePlateEventSensor(ProtectEventSensor):
         self._attr_extra_state_attributes = {}
 
     @callback
-    def _async_update_device_from_protect(self, device: ProtectModelWithId) -> None:
+    def _async_update_device_from_protect(self, device: ProtectDeviceType) -> None:
         description = self.entity_description
 
         prev_event = self._event
         prev_event_end = self._event_end
         super()._async_update_device_from_protect(device)
-        event = self._event = description.get_event_obj(device)
-        self._event_end = event.end if event else None
+        if event := description.get_event_obj(device):
+            self._event = event
+            self._event_end = event.end
 
         if not (
             event
-            and not self._event_already_ended(prev_event, prev_event_end)
-            and description.has_matching_smart(event)
-            and ((is_end := event.end) or self.device.is_smart_detected)
             and (metadata := event.metadata)
             and (license_plate := metadata.license_plate)
+            and description.has_matching_smart(event)
+            and not self._event_already_ended(prev_event, prev_event_end)
         ):
             self._set_event_done()
             return
 
         self._attr_native_value = license_plate.name
         self._set_event_attrs(event)
-        if is_end:
+        if event.end:
             self._async_event_with_immediate_end()
